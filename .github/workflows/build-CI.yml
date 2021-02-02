@@ -1,0 +1,72 @@
+name: Build Phicomm N1 Lean's OpenWrt
+
+on:
+  # push:
+  #   branches:
+  #     - customize
+  schedule:
+    - cron: "0 1 1 * *"
+  workflow_dispatch:
+    
+env:
+  TZ: 'Asia/Shanghai'
+
+jobs:
+  build:
+    runs-on: ubuntu-18.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Install depends
+        run: |
+          docker rmi `docker images -q`
+          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /usr/lib/jvm /opt/ghc
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install $(curl -fsSL git.io/depends-ubuntu-1804)
+          sudo -E apt-get -qq autoremove --purge
+          sudo -E apt-get -qq clean
+          sudo timedatectl set-timezone $TZ
+
+      - name: Clone Lean's openwrt
+        run: |
+          git clone https://github.com/coolsnowwolf/lede
+
+      - name: Install feeds & Make config
+        env:
+          CONFIG: '.github/config'
+          PRESET: '.github/scripts'
+        run: |
+          chmod +x $CONFIG
+          chmod +x $PRESET/*.sh
+          ./$CONFIG
+          ./$PRESET/preset-clash-core.sh armv8
+          ./$PRESET/preset-terminal-tools.sh
+
+      - name: Compile openwrt
+        run: |
+          cd lede
+          make download -j8
+          make -j$(nproc) || make -j1 V=s
+
+      - name: Build firmware
+        run: |
+          cp lede/bin/targets/*/*/*.tar.gz ./openwrt
+          sudo ./gen_openwrt -d -k latest
+          
+          devices=("phicomm-n1")
+          cd out
+          for x in ${devices[*]}; do
+            cd $x
+            filename=$(ls | awk -F '.img' '{print $1}')
+            gzip *.img
+            cd ../
+            echo "firmware_$x=$filename" >> $GITHUB_ENV
+          done
+
+      - name: Upload firmware @ phicomm n1
+        uses: actions/upload-artifact@main
+        with:
+          name: ${{ env.firmware_phicomm-n1 }}
+          path: out/phicomm-n1

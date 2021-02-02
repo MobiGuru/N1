@@ -1,0 +1,174 @@
+#!/bin/bash
+
+cd lede
+
+(
+    cd package
+    git clone https://github.com/tuanqing/install-program
+    git clone https://github.com/jerrykuku/luci-theme-argon -b 18.06
+    git clone https://github.com/garypang13/luci-theme-edge -b 18.06
+    svn co https://github.com/vernesong/OpenClash/trunk/luci-app-openclash
+    git clone https://github.com/kongfl888/luci-app-adguardhome
+    git clone https://github.com/lisaac/luci-app-dockerman
+    git clone https://github.com/lisaac/luci-lib-docker
+
+    # sed -i 's/+docker-ce/+docker +dockerd/' luci-app-dockerman/applications/luci-app-dockerman/Makefile
+
+    rm -rf libs/nettle
+    rm -rf lean/{samba4,luci-app-samba4,luci-app-ttyd,luci-theme-argon,luci-lib-docker}
+    svn co https://github.com/Lienol/openwrt/branches/main/package/libs/{libaudit,libsemanage,musl-fts,nettle} libs
+)
+
+cat >feeds.conf.default <<-EOF
+src-git luci https://github.com/Lienol/openwrt-luci.git;18.06
+src-git packages https://github.com/coolsnowwolf/packages.git;master
+# src-git packages https://github.com/Lienol/openwrt-packages.git;main
+src-git routing https://git.openwrt.org/feed/routing.git
+src-git telephony https://git.openwrt.org/feed/telephony.git
+# src-git helloworld https://github.com/fw876/helloworld.git
+EOF
+
+./scripts/feeds update -a
+./scripts/feeds install -a
+
+git apply ../.github/patches/{0001*,0002*,0101*,0103*,0105*}.patch --directory=feeds/luci
+(
+    cd feeds/luci/modules/luci-mod-admin-full/luasrc/view/admin_status
+    mv index.htm index.htm.old
+    cp index_arm.htm index.htm
+)
+
+git apply ../.github/patches/0102-luci-theme-argon-css.patch --directory=package/luci-theme-argon
+git apply ../.github/patches/0104-fix-edge-some-error.patch --directory=package/luci-theme-edge
+
+git apply ../.github/patches/1001-luci-vlmcsd-fw-rule-name.patch --directory=package/lean/luci-app-vlmcsd
+git apply ../.github/patches/1002-remove-sfe-dns-acc.patch --directory=package/lean/luci-app-sfe
+git apply ../.github/patches/1003-remove-flowoffload-dns-acc.patch --directory=package/lean/luci-app-flowoffload
+
+zzz="package/lean/default-settings/files/zzz-default-settings"
+sed -i 's/samba/samba4/' $zzz
+sed -i "/openwrt_luci/i sed -i '/Lienol/d' /etc/opkg/distfeeds.conf" $zzz
+sed -i "/openwrt_luci/i sed -i '/helloworld/d' /etc/opkg/distfeeds.conf" $zzz
+
+packages=" \
+kmod-fs-ext4 kmod-fs-vfat kmod-fs-exfat dosfstools e2fsprogs ntfs-3g \
+kmod-usb2 kmod-usb3 kmod-usb-storage kmod-usb-storage-extras kmod-usb-storage-uas \
+blkid lsblk parted fdisk cfdisk losetup resize2fs tune2fs pv unzip \
+lscpu htop iperf3 curl lm-sensors python3 install-program
+"
+sed -i '/FEATURES+=/ { s/cpiogz //; s/ext4 //; s/ramdisk //; s/squashfs //; }' \
+    target/linux/armvirt/Makefile
+for x in $packages; do
+    sed -i "/DEFAULT_PACKAGES/ s/$/ $x/" target/linux/armvirt/Makefile
+done
+
+rm -f package/lean/shadowsocksr-libev/patches/0002-Revert-verify_simple-and-auth_simple.patch
+sed -i '383,393 d' package/lean/shadowsocksr-libev/patches/0001-Add-ss-server-and-ss-check.patch
+sed -i 's/PKG_RELEASE:=5/PKG_RELEASE:=6/' package/lean/shadowsocksr-libev/Makefile
+sed -i '/PKG_SOURCE_VERSION:=/d' package/lean/shadowsocksr-libev/Makefile
+sed -i '/PKG_SOURCE_URL/a PKG_SOURCE_VERSION:=4799b312b8244ec067b8ae9ba4b85c877858976c' \
+    package/lean/shadowsocksr-libev/Makefile
+
+# sed -i 's/ipaddr:-"192.168.1.1"/ipaddr:-"192.168.1.10"/' package/base-files/files/bin/config_generate
+
+cat >.config <<-EOF
+## target
+CONFIG_TARGET_armvirt=y
+CONFIG_TARGET_armvirt_64=y
+CONFIG_TARGET_armvirt_64_Default=y
+
+## optimization
+CONFIG_TARGET_OPTIMIZATION="-Os -pipe -mcpu=cortex-a53 -march=armv8-a -mtune=cortex-a53 -mfloat-abi=hard -mfpu=neon-fp-armv8 -mneon-for-64bits"
+CONFIG_TARGET_OPTIONS=y
+CONFIG_CPU_TYPE="cortex-a53"
+
+## disable ipv6
+## 如果加入 # CONFIG_IPV6 is not set 
+## docker-ce 不会编译进固件
+# CONFIG_KERNEL_IPV6 is not set
+# CONFIG_PACKAGE_ipv6helper is not set
+
+## TurboACC
+# CONFIG_PACKAGE_kmod-ipt-offload is not set
+# CONFIG_PACKAGE_kmod-nf-flow is not set
+# CONFIG_PACKAGE_luci-app-flowoffload is not set
+CONFIG_PACKAGE_kmod-fast-classifier=y
+CONFIG_PACKAGE_kmod-shortcut-fe=y
+CONFIG_PACKAGE_luci-app-sfe=y
+
+## luci app
+CONFIG_PACKAGE_luci-app-accesscontrol=y
+CONFIG_PACKAGE_luci-app-autoreboot=y
+CONFIG_PACKAGE_luci-app-cifs-mount=y
+CONFIG_PACKAGE_kmod-fs-cifs=y
+CONFIG_PACKAGE_kmod-nls-utf8=y
+CONFIG_PACKAGE_kmod-crypto-misc=y
+CONFIG_PACKAGE_luci-app-cpufreq=y
+CONFIG_PACKAGE_luci-app-diskman=y
+CONFIG_PACKAGE_luci-app-diskman_INCLUDE_btrfs_progs=y
+CONFIG_PACKAGE_luci-app-diskman_INCLUDE_lsblk=y
+CONFIG_PACKAGE_luci-app-diskman_INCLUDE_mdadm=y
+CONFIG_PACKAGE_luci-app-diskman_INCLUDE_kmod_md_raid456=y
+CONFIG_PACKAGE_luci-app-diskman_INCLUDE_kmod_md_linear=y
+CONFIG_PACKAGE_luci-app-dockerman=y
+CONFIG_PACKAGE_luci-app-openclash=y
+CONFIG_PACKAGE_luci-app-ttyd=y
+
+## luci theme
+CONFIG_PACKAGE_luci-theme-argon=y
+CONFIG_PACKAGE_luci-theme-edge=y
+
+## openclash tun mode
+CONFIG_PACKAGE_kmod-tun=y
+
+## remove
+# CONFIG_PACKAGE_luci-app-adbyby-plus is not set
+# CONFIG_PACKAGE_luci-app-adguardhome is not set
+# CONFIG_PACKAGE_luci-app-aria2 is not set
+# CONFIG_PACKAGE_luci-app-arpbind is not set
+# CONFIG_PACKAGE_luci-app-ddns is not set
+# CONFIG_PACKAGE_ddns-scripts is not set
+# CONFIG_PACKAGE_ddns-scripts_aliyun is not set
+# CONFIG_PACKAGE_ddns-scripts_dnspod is not set
+# CONFIG_PACKAGE_luci-app-nlbwmon is not set
+# CONFIG_PACKAGE_nlbwmon is not set
+# CONFIG_PACKAGE_luci-app-kodexplorer is not set
+# CONFIG_PACKAGE_luci-app-mentohust is not set
+# CONFIG_PACKAGE_luci-app-ramfree is not set
+# CONFIG_PACKAGE_luci-app-samba4 is not set
+# CONFIG_PACKAGE_luci-app-ssr-plus is not set
+# CONFIG_PACKAGE_luci-app-upnp is not set
+# CONFIG_PACKAGE_miniupnpd is not set
+# CONFIG_PACKAGE_luci-app-vlmcsd is not set
+# CONFIG_PACKAGE_luci-app-vsftpd is not set
+# CONFIG_PACKAGE_luci-app-unblockmusic is not set
+# CONFIG_UnblockNeteaseMusic_Go is not set
+# CONFIG_UnblockNeteaseMusic_NodeJS is not set
+# CONFIG_PACKAGE_luci-app-webadmin is not set
+# CONFIG_PACKAGE_luci-app-wol is not set
+
+## remove others
+# CONFIG_PACKAGE_nano is not set
+# CONFIG_PACKAGE_hostapd-common is not set
+# CONFIG_PACKAGE_iw is not set
+# CONFIG_PACKAGE_iwinfo is not set
+# CONFIG_PACKAGE_wpa-cli is not set
+# CONFIG_PACKAGE_wpad-basic is not set
+# CONFIG_PACKAGE_wireless-regdb is not set
+
+## add package
+CONFIG_PACKAGE_irqbalance=y
+CONFIG_PACKAGE_unzip=y
+CONFIG_PACKAGE_vim-fuller=y
+CONFIG_PACKAGE_zsh=y
+# CONFIG_PACKAGE_libwolfssl24=y
+# CONFIG_PACKAGE_git-http=y
+
+## others
+# CONFIG_BRCMFMAC_SDIO is not set
+CONFIG_LUCI_LANG_zh_Hans=y
+CONFIG_LUCI_LANG_en=y
+EOF
+
+make defconfig
+cat .config
