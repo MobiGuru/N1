@@ -1,7 +1,20 @@
-
 config globals 'globals'
-#	option alt_config_file "/etc/docker/daemon.json"
-	option data_root "/opt/docker/"
-	option log_level "error"
-#	list registry_mirror "https://<my-docker-mirror-host>"
-#	list registry_mirror "https://hub.docker.com"
+        option data_root '/opt/docker/'
+        option log_level 'error'
+        option auto_start '1'
+        list hosts 'unix:///var/run/docker.sock'
+        list registry_mirrors 'https://hub-mirror.c.163.com'
+        list registry_mirrors 'https://mirror.baidubce.com'
+        list registry_mirrors 'https://docker.mirrors.ustc.edu.cn'
+
+config dockerman 'dockerman'
+        option socket_path '/var/run/docker.sock'
+        option status_path '/tmp/.docker_action_status'
+        option debug 'false'
+        option debug_path '/tmp/.docker_debug'
+        option daemon_data_root '/opt/docker/'
+        option daemon_log_level 'error'
+        option daemon_ea 'true'
+        option remote_endpoint '0'
+        list ac_allowed_interface 'eth0'
+        list ac_allowed_container 'BaiduPCS'
