@@ -14,9 +14,9 @@ cd lede
 
     # sed -i 's/+docker-ce/+docker +dockerd/' luci-app-dockerman/applications/luci-app-dockerman/Makefile
 
-    rm -rf libs/nettle
+    # rm -rf libs/nettle
     rm -rf lean/{samba4,luci-app-samba4,luci-app-ttyd,luci-theme-argon,luci-lib-docker}
-    svn co https://github.com/Lienol/openwrt/branches/main/package/libs/{libaudit,libsemanage,musl-fts,nettle} libs
+    svn co https://github.com/Lienol/openwrt/branches/main/package/libs/{libaudit,libsemanage,musl-fts} libs
 )
 
 cat >feeds.conf.default <<-EOF
